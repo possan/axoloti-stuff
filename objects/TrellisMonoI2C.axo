@@ -1,0 +1,208 @@
+<objdefs appVersion="1.0.12">
+   <obj.normal id="TrellisMonoI2C" uuid="1f74acfb-8052-4466-b027-123c5cb1fdf2">
+      <sDescription>Drives Adafruit Trellis boards over I2C</sDescription>
+      <author>Per-Olov Jernberg</author>
+      <license>BSD</license>
+      <helpPatch>script.axh</helpPatch>
+      <inlets>
+         <bool32 name="i1"/>
+         <bool32 name="i2"/>
+         <bool32 name="i3"/>
+         <bool32 name="i4"/>
+         <bool32 name="i5"/>
+         <bool32 name="i6"/>
+         <bool32 name="i7"/>
+         <bool32 name="i8"/>
+         <bool32 name="i9"/>
+         <bool32 name="i10"/>
+         <bool32 name="i11"/>
+         <bool32 name="i12"/>
+         <bool32 name="i13"/>
+         <bool32 name="i14"/>
+         <bool32 name="i15"/>
+         <bool32 name="i16"/>
+      </inlets>
+      <outlets>
+         <bool32 name="o1"/>
+         <bool32 name="o2"/>
+         <bool32 name="o3"/>
+         <bool32 name="o4"/>
+         <bool32 name="o5"/>
+         <bool32 name="o6"/>
+         <bool32 name="o7"/>
+         <bool32 name="o8"/>
+         <bool32 name="o9"/>
+         <bool32 name="o10"/>
+         <bool32 name="o11"/>
+         <bool32 name="o12"/>
+         <bool32 name="o13"/>
+         <bool32 name="o14"/>
+         <bool32 name="o15"/>
+         <bool32 name="o16"/>
+      </outlets>
+      <displays/>
+      <params/>
+      <attribs>
+         <spinner name="I2CADDR" description="I2C Address" MinValue="112" MaxValue="180" DefaultValue="112"/>
+      </attribs>
+      <depends>
+         <depend>I2CD1</depend>
+      </depends>
+      <code.declaration><![CDATA[uint8_t *txbuf;
+uint8_t *rxbuf;
+
+bool outs[16] = { 0, };
+bool ins[16] = { 0, };
+
+void cmd(uint8_t c) {
+	txbuf[0] = c;
+	i2cMasterTransmitTimeout(&I2CD1, attr_I2CADDR, txbuf, 1, rxbuf, 0, 30);
+}
+
+#define HT16K33_BLINK_CMD       0x80
+#define HT16K33_BLINK_DISPLAYON 0x01
+#define HT16K33_CMD_BRIGHTNESS  0xE0
+
+uint16_t displaybuffer[16] = { 0, };
+uint16_t keybuffer[6] = { 0, };
+
+uint8_t
+  ledLUT[16] =
+    { 0x3A, 0x37, 0x35, 0x34,
+      0x28, 0x29, 0x23, 0x24,
+      0x16, 0x1B, 0x11, 0x10,
+      0x0E, 0x0D, 0x0C, 0x02, };
+      
+uint8_t
+  buttonLUT[16] =
+    { 0x07, 0x04, 0x02, 0x22,
+      0x05, 0x06, 0x00, 0x01,
+      0x03, 0x10, 0x30, 0x21,
+      0x13, 0x12, 0x11, 0x31, };
+
+void init() {
+	i2cAcquireBus(&I2CD1);
+	cmd(0x21);
+	cmd(HT16K33_BLINK_CMD | HT16K33_BLINK_DISPLAYON | 0);
+	cmd(HT16K33_CMD_BRIGHTNESS | 15); // 15 mxa
+	cmd(0xA1);
+	i2cReleaseBus(&I2CD1);
+	
+	LogTextMessage("After init.");
+}
+
+void setup() {
+	static uint8_t _txbuf[132] __attribute__ ((section (".sram2")));
+	static uint8_t _rxbuf[8]   __attribute__ ((section (".sram2")));
+	txbuf = _txbuf;
+	rxbuf = _rxbuf;
+	init();
+}
+
+void updateleds() {
+	int i, x;
+
+	for(i=0; i<8; i++) {
+		displaybuffer[i] = 0;
+	}
+	
+	for(i=0; i<16; i++) {
+		x = ledLUT[i];
+		if (ins[i]) {
+			displaybuffer[x >> 4] |= (1 << (x & 0x0F));
+		}
+	}
+	
+	i2cAcquireBus(&I2CD1);
+	txbuf[0] = 0;
+	for(i=0; i<8; i++) {
+		txbuf[i * 2 + 1] = displaybuffer[i] & 0xFF;
+		txbuf[i * 2 + 2] = displaybuffer[i] >> 8;
+	}
+	int ret = i2cMasterTransmitTimeout(&I2CD1, attr_I2CADDR, txbuf, 17, rxbuf, 0, 30);
+	if (ret != 0) {
+		LogTextMessage("Failed to talk to Trellis, Wrong I2C address? rxbuf=[%02X %02X %02X], ret=%d", rxbuf[0], rxbuf[1], rxbuf[2], ret);
+	}
+	i2cReleaseBus(&I2CD1);
+}
+  
+void scankeys() {
+	int i, x;
+
+	i2cAcquireBus(&I2CD1);
+	txbuf[0] = 0x40;
+	i2cMasterTransmitTimeout(&I2CD1, attr_I2CADDR, txbuf, 1, rxbuf, 6, 30);
+	for(i=0; i<6; i++) {
+		keybuffer[i] = rxbuf[i];
+	}
+	i2cReleaseBus(&I2CD1);
+
+	for(i=0; i<16; i++) {
+		x = buttonLUT[i];
+	  	outs[i] = (keybuffer[x>>4] & (1 << (x & 0x0F)));
+	}
+}
+  
+msg_t ThreadX2() {
+	chThdSleepMilliseconds(500);
+	setup();
+	while(!chThdShouldTerminate()) {
+		updateleds();
+		chThdSleepMilliseconds(10);
+		scankeys();
+		chThdSleepMilliseconds(10);
+	}
+	chThdExit((msg_t)0);
+}
+
+static msg_t ThreadX(void *arg) {
+	((attr_parent *)arg)->ThreadX2();
+}
+
+WORKING_AREA(waThreadX, 1024);
+Thread *Thd;]]></code.declaration>
+      <code.init><![CDATA[for(int i=0; i<16; i++) {
+	outs[0] = 0;
+	ins[0] = 0;
+}
+
+Thd = chThdCreateStatic(waThreadX, sizeof(waThreadX), NORMALPRIO, ThreadX, (void *)this);]]></code.init>
+      <code.dispose><![CDATA[chThdTerminate(Thd);
+chThdWait(Thd);]]></code.dispose>
+      <code.krate><![CDATA[outlet_o1 = this->outs[0];
+outlet_o2 = this->outs[1];
+outlet_o3 = this->outs[2];
+outlet_o4 = this->outs[3];
+outlet_o5 = this->outs[4];
+outlet_o6 = this->outs[5];
+outlet_o7 = this->outs[6];
+outlet_o8 = this->outs[7];
+outlet_o9 = this->outs[8];
+outlet_o10 = this->outs[9];
+outlet_o11 = this->outs[10];
+outlet_o12 = this->outs[11];
+outlet_o13 = this->outs[12];
+outlet_o14 = this->outs[13];
+outlet_o15 = this->outs[14];
+outlet_o16 = this->outs[15];
+
+this->ins[0] = inlet_i1;
+this->ins[1] = inlet_i2;
+this->ins[2] = inlet_i3;
+this->ins[3] = inlet_i4;
+this->ins[4] = inlet_i5;
+this->ins[5] = inlet_i6;
+this->ins[6] = inlet_i7;
+this->ins[7] = inlet_i8;
+this->ins[8] = inlet_i9;
+this->ins[9] = inlet_i10;
+this->ins[10] = inlet_i11;
+this->ins[11] = inlet_i12;
+this->ins[12] = inlet_i13;
+this->ins[13] = inlet_i14;
+this->ins[14] = inlet_i15;
+this->ins[15] = inlet_i16;
+
+//this->in2 = inlet_in2__;]]></code.krate>
+   </obj.normal>
+</objdefs>
