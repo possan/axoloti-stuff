@@ -1,9 +1,9 @@
 <objdefs appVersion="1.0.12">
-   <obj.normal id="TrellisMonoI2C" uuid="1f74acfb-8052-4466-b027-123c5cb1fdf2">
+   <obj.normal id="trellisMonoI2C" uuid="1f74acfb-8052-4466-b027-123c5cb1fdf2">
       <sDescription>Drives Adafruit Trellis boards over I2C</sDescription>
       <author>Per-Olov Jernberg</author>
       <license>BSD</license>
-      <helpPatch>script.axh</helpPatch>
+      <helpPatch></helpPatch>
       <inlets>
          <bool32 name="i1"/>
          <bool32 name="i2"/>
@@ -202,7 +202,6 @@ this->ins[12] = inlet_i13;
 this->ins[13] = inlet_i14;
 this->ins[14] = inlet_i15;
 this->ins[15] = inlet_i16;
-
-//this->in2 = inlet_in2__;]]></code.krate>
+]]></code.krate>
    </obj.normal>
 </objdefs>
